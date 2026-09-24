@@ -11,7 +11,7 @@ from flask import Flask, render_template, request, jsonify
 app = Flask(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 DEMO_MODE = os.environ.get("DEMO_MODE", "0") == "1"
 MAX_SOURCES = 8
 RATE_LIMIT = int(os.environ.get("RATE_LIMIT_PER_HOUR", "10"))
