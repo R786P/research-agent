@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Agent</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#212121;color:#ececec;display:flex;min-height:100vh}
+.sidebar{width:260px;background:#171717;padding:16px;display:flex;flex-direction:column;gap:6px;position:fixed;top:0;bottom:0;left:0;z-index:20;transition:transform .25s;overflow-y:auto}
+.sidebar h2{font-size:17px;color:#fff;margin-bottom:8px}
+.newbtn{padding:10px 12px;border-radius:8px;border:1px solid #3a3a3a;background:transparent;color:#fff;cursor:pointer;font-size:14px;text-align:left}
+.newbtn:hover{background:#2a2a2a}
+.hist-title{font-size:11px;color:#777;margin-top:12px;text-transform:uppercase;letter-spacing:.5px}
+.item{padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:#c5c5c5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item:hover{background:#2a2a2a;color:#fff}
+.foot{margin-top:auto;font-size:11px;color:#777;padding-top:12px}
+.main{margin-left:260px;flex:1;padding:24px;max-width:900px;width:100%}
+.menu{display:none;position:fixed;top:10px;left:10px;z-index:30;background:#2a2a2a;border:0;color:#fff;font-size:20px;padding:6px 12px;border-radius:8px}
+h1{font-size:22px;margin-bottom:4px}
+.sub{color:#9a9a9a;font-size:13px;margin-bottom:16px}
+.card{background:#2a2a2a;border-radius:14px;padding:18px;margin-bottom:14px}
+textarea{width:100%;min-height:90px;padding:12px;border-radius:10px;border:1px solid #3a3a3a;background:#171717;color:#fff;font-size:15px;font-family:inherit;resize:vertical}
+button.go{margin-top:12px;width:100%;padding:13px;border:0;border-radius:10px;background:#10a37f;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+button.go:disabled{opacity:.6}
+.hide{display:none}
+.err{color:#ff6b6b;font-size:14px}
+.badge{display:inline-block;font-size:11px;background:#3a3a3a;color:#ddd;padding:3px 8px;border-radius:20px;margin:0 6px 6px 0}
+.step{font-size:13px;color:#9a9a9a;margin-bottom:4px}
+.report h2{font-size:16px;margin:14px 0 6px;color:#10a37f}
+.report p{font-size:14px;line-height:1.6;margin-bottom:8px}
+.report ul{margin:0 0 8px 18px}
+.report li{font-size:14px;line-height:1.6;margin-bottom:4px}
+.report a.cite{color:#10a37f;text-decoration:none;font-size:12px;vertical-align:super}
+.src{font-size:13px;margin-bottom:8px;line-height:1.4}
+.src a{color:#8ab4ff;word-break:break-all}
+.copy{margin-top:8px;padding:8px 14px;border-radius:8px;border:1px solid #3a3a3a;background:transparent;color:#fff;cursor:pointer;font-size:13px}
+@media(max-width:760px){
+.sidebar{transform:translateX(-100%)}
+.sidebar.open{transform:translateX(0)}
+.menu{display:block}
+.main{margin-left:0;padding:58px 14px 20px}
+}
+</style>
+</head>
+<body>
+<button class="menu" onclick="document.getElementById('sb').classList.toggle('open')">&#9776;</button>
+<div class="sidebar" id="sb">
+<h2>Research Agent</h2>
+<button class="newbtn" onclick="newResearch()">+ New research</button>
+<div class="hist-title">Recent</div>
+<div id="hist"></div>
+<div class="foot">AI can make mistakes. Check the sources before relying on a result.</div>
+</div>
+<div class="main">
+<h1>Research Agent</h1>
+<p class="sub">Give a goal. The agent plans searches, reads the results and writes a short sourced report.{% if demo %} <b>(Demo mode)</b>{% endif %}</p>
+<div class="card">
+<textarea id="goal" maxlength="300" placeholder="Example: What are the main benefits and risks of solar power for small farms in India?"></textarea>
+<button class="go" id="btn" onclick="runAgent()">Start research</button>
+</div>
+<div class="card hide" id="status"><div class="step" id="stxt">Planning, searching and writing. This can take 20 to 40 seconds...</div></div>
+<div class="card hide" id="errbox"><span class="err" id="errtxt"></span></div>
+<div class="card hide" id="out">
+<div class="step">Search queries used</div><div id="queries"></div>
+<div class="report" id="report"></div>
+<button class="copy" onclick="copyReport()">Copy report</button>
+<button class="copy" id="pdfbtn" onclick="downloadPdf()">Download PDF</button>
+</div>
+<div class="card hide" id="srcbox"><div class="step">Sources</div><div id="sources"></div></div>
+</div>
+<script>
+var current=null;
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function safeUrl(u){return /^https?:\/\//i.test(u)?u:'#';}
+function inline(t){
+t=esc(t);
+t=t.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+t=t.replace(/\[(\d+)\]/g,function(m,n){return '<a class="cite" href="#src'+n+'">['+n+']</a>';});
+return t;
+}
+function md(text){
+var lines=text.split('\n'),html='',inList=false;
+lines.forEach(function(l){
+l=l.trim();
+if(/^[-*]\s+/.test(l)){if(!inList){html+='<ul>';inList=true;}html+='<li>'+inline(l.replace(/^[-*]\s+/,''))+'</li>';return;}
+if(inList){html+='</ul>';inList=false;}
+if(/^#{1,3}\s+/.test(l)){html+='<h2>'+inline(l.replace(/^#{1,3}\s+/,''))+'</h2>';}
+else if(l){html+='<p>'+inline(l)+'</p>';}
+});
+if(inList)html+='</ul>';
+return html;
+}
+function show(d,goal){
+current={goal:goal,data:d};
+document.getElementById('queries').innerHTML=d.queries.map(function(q){return '<span class="badge">'+esc(q)+'</span>';}).join('');
+document.getElementById('report').innerHTML=md(d.report);
+document.getElementById('sources').innerHTML=d.sources.map(function(s,i){return '<div class="src" id="src'+(i+1)+'">['+(i+1)+'] '+esc(s.title)+'<br><a href="'+esc(safeUrl(s.url))+'" target="_blank" rel="noopener noreferrer">'+esc(s.url)+'</a></div>';}).join('');
+['out','srcbox'].forEach(function(id){document.getElementById(id).classList.remove('hide');});
+}
+function getHist(){try{return JSON.parse(localStorage.getItem('ra_hist')||'[]');}catch(e){return [];}}
+function saveHist(goal,d){
+try{var h=getHist();h.unshift({goal:goal,data:d});h=h.slice(0,10);localStorage.setItem('ra_hist',JSON.stringify(h));}catch(e){}
+renderHist();
+}
+function renderHist(){
+var h=getHist(),box=document.getElementById('hist');box.innerHTML='';
+h.forEach(function(x,i){var d=document.createElement('div');d.className='item';d.textContent=x.goal;d.onclick=function(){document.getElementById('goal').value=x.goal;document.getElementById('errbox').classList.add('hide');show(x.data,x.goal);document.getElementById('sb').classList.remove('open');};box.appendChild(d);});
+}
+function newResearch(){
+document.getElementById('goal').value='';
+['out','srcbox','errbox','status'].forEach(function(id){document.getElementById(id).classList.add('hide');});
+document.getElementById('sb').classList.remove('open');
+}
+async function runAgent(){
+var goal=document.getElementById('goal').value.trim();
+var btn=document.getElementById('btn');
+['out','srcbox','errbox'].forEach(function(id){document.getElementById(id).classList.add('hide');});
+if(goal.length<5){document.getElementById('errtxt').textContent='Please enter a research goal (at least 5 characters).';document.getElementById('errbox').classList.remove('hide');return;}
+btn.disabled=true;btn.textContent='Researching...';
+document.getElementById('status').classList.remove('hide');
+try{
+var r=await fetch('/research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:goal})});
+var d=await r.json();
+if(!r.ok){document.getElementById('errtxt').textContent=d.error||'Something went wrong';document.getElementById('errbox').classList.remove('hide');}
+else{show(d,goal);saveHist(goal,d);}
+}catch(e){document.getElementById('errtxt').textContent='Network error, please try again.';document.getElementById('errbox').classList.remove('hide');}
+document.getElementById('status').classList.add('hide');
+btn.disabled=false;btn.textContent='Start research';
+}
+function copyReport(){
+if(!current)return;
+var t=current.data.report+'\n\nSources:\n'+current.data.sources.map(function(s,i){return '['+(i+1)+'] '+s.title+' - '+s.url;}).join('\n');
+if(navigator.clipboard){navigator.clipboard.writeText(t);}
+}
+async function downloadPdf(){
+if(!current)return;
+var btn=document.getElementById('pdfbtn');btn.disabled=true;var old=btn.textContent;btn.textContent='Preparing...';
+try{
+var r=await fetch('/export-pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+goal:current.goal,report:current.data.report,sources:current.data.sources,queries:current.data.queries})});
+if(!r.ok){var e=await r.json().catch(function(){return{};});alert(e.error||'Could not generate the PDF.');}
+else{
+var blob=await r.blob();
+var a=document.createElement('a');
+a.href=URL.createObjectURL(blob);
+a.download=(current.goal||'report').slice(0,50).replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase()+'.pdf';
+document.body.appendChild(a);a.click();a.remove();
+}
+}catch(e){alert('Network error, please try again.');}
+btn.disabled=false;btn.textContent=old;
+}
+renderHist();
+</script>
+</body>
+</html>
